@@ -1,66 +1,84 @@
 #!/bin/sh /etc/rc.common
 
 START=97
-
 ENABLED=0
-WORKGROUPD=0
+WORKGROUP=0
 IOCHARSET=0
 GUEST=""
 USERS=""
 AGM=""
 
 cifs_header() {
-	local enabled
-	local workgroup 
+    local enabled
+    local workgroup
+    config_get enabled $1 enabled
+    config_get workgroup $1 workgroup
+    ENABLED=$enabled
+    WORKGROUP=$workgroup
+}
 
-	config_get enabled $1 enabled
-	config_get workgroup $1 workgroup
-
-	ENABLED=$enabled
-	WORKGROUPD=$workgroup
+detect_mount_command() {
+    if command -v busybox > /dev/null && busybox --list | grep -q mount; then
+        echo "busybox mount"
+    elif command -v mount > /dev/null; then
+        echo "mount"
+    else
+        echo "none"
+    fi
 }
 
 mount_natshare() {
-	local server
-	local name
-	local natpath
-	local guest
-	local users
-	local pwd
-	local agm
-	local iocharset
-	local smbver
+    local server
+    local name
+    local natpath
+    local guest
+    local users
+    local pwd
+    local agm
+    local iocharset
+    local smbver
+    config_get server $1 server
+    config_get name $1 name
+    config_get natpath $1 natpath
+    config_get guest $1 guest
+    config_get users $1 users
+    config_get pwd $1 pwd
+    config_get agm $1 agm
+    config_get iocharset $1 iocharset
+    config_get smbver $1 smbver
 
-	config_get server $1 server
-	config_get name $1 name
-	config_get natpath $1 natpath
-	config_get guest $1 guest
-	config_get users $1 users
-	config_get pwd $1 pwd
-	config_get agm $1 agm
-	config_get iocharset $1 iocharset
-	config_get smbver $1 smbver
-	
-	mkdir -p $natpath && chmod 777 $natpath
-	#echo "mount -t cifs -o vers=$smbver,user=$users,password=$pwd,iocharset=$iocharset,$agm //$server/$name $natpath"
-	mount -t cifs -o vers=$smbver,user=$users,password=$pwd,iocharset=$iocharset,$agm //$server/$name $natpath
+    mkdir -p $natpath && chmod 777 $natpath
+    MOUNT_CMD=$(detect_mount_command)
+    if [ "$MOUNT_CMD" = "none" ]; then
+        log_error "No valid mount command found!"
+        return 1
+    fi
+    $MOUNT_CMD -t cifs -o vers=$smbver,user=$users,username=$users,password=$pwd,iocharset=$iocharset,$agm,_netdev,nofail //$server/$name $natpath
+    if [ $? -eq 0 ]; then
+        log_info "Mount succeeded using $MOUNT_CMD."
+    else
+        log_error "Mount failed using $MOUNT_CMD."
+        return 1
+    fi
 }
 
 start() {
-	config_load cifs
-	config_foreach cifs_header cifs
-
-	if [ $ENABLED == 1 ]
-	then {
-		config_foreach mount_natshare natshare
-		#echo "Cifs Mount succeed."
-		}
-	fi
+    config_load cifs
+    config_foreach cifs_header cifs
+    if [ $ENABLED == 1 ]
+    then {
+        config_foreach mount_natshare natshare
+        }
+    fi
 }
 
 stop() {
-	mount | grep '//' | awk -F ' ' '{print$3}' | while read line; do
-    #echo "umount -d -l $line"
-    umount -d -l $line 2>/dev/null
-	done
+    mount | grep '//' | awk -F ' ' '{print$3}' | while read line; do
+        umount -d -l $line 2>/dev/null
+        if [ $? -ne 0 ]; then
+            log_error "Failed to unmount $line."
+        else
+            log_info "Unmounted $line successfully."
+        fi
+    done
 }
