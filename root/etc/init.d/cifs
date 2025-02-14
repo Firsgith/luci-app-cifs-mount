@@ -9,10 +9,6 @@ GUEST=""
 USERS=""
 AGM=""
 
-is_busybox() {
-    mount --help 2>&1 | grep -q "BusyBox"
-}
-
 cifs_header() {
     local enabled
     local workgroup 
@@ -48,12 +44,10 @@ mount_natshare() {
 
     mkdir -p "$natpath" && chmod 777 "$natpath"
 
-    if is_busybox; then
-        mount_cmd="busybox mount"
-    else
-        mount_cmd="mount"
-    fi
+    # 直接判断并赋值 mount_cmd
+    mount_cmd=$(if mount --help 2>&1 | grep -q "BusyBox"; then echo "busybox mount"; else echo "mount"; fi)
 
+    # 执行挂载
     $mount_cmd -t cifs -o vers=$smbver,user=$users,username=$users,password=$pwd,iocharset=$iocharset,$agm //$server/$name $natpath
 }
 
