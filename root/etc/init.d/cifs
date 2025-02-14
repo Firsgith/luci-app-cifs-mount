@@ -1,30 +1,27 @@
 #!/bin/sh /etc/rc.common
 
 START=97
+
 ENABLED=0
-WORKGROUP=0
+WORKGROUPD=0
 IOCHARSET=0
 GUEST=""
 USERS=""
 AGM=""
 
-cifs_header() {
-    local enabled
-    local workgroup
-    config_get enabled $1 enabled
-    config_get workgroup $1 workgroup
-    ENABLED=$enabled
-    WORKGROUP=$workgroup
+is_busybox() {
+    mount --help 2>&1 | grep -q "BusyBox"
 }
 
-detect_mount_command() {
-    if command -v busybox > /dev/null && busybox --list | grep -q mount; then
-        echo "busybox mount"
-    elif command -v mount > /dev/null; then
-        echo "mount"
-    else
-        echo "none"
-    fi
+cifs_header() {
+    local enabled
+    local workgroup 
+
+    config_get enabled $1 enabled
+    config_get workgroup $1 workgroup
+
+    ENABLED=$enabled
+    WORKGROUPD=$workgroup
 }
 
 mount_natshare() {
@@ -37,6 +34,8 @@ mount_natshare() {
     local agm
     local iocharset
     local smbver
+    local mount_cmd
+
     config_get server $1 server
     config_get name $1 name
     config_get natpath $1 natpath
@@ -47,38 +46,28 @@ mount_natshare() {
     config_get iocharset $1 iocharset
     config_get smbver $1 smbver
 
-    mkdir -p $natpath && chmod 777 $natpath
-    MOUNT_CMD=$(detect_mount_command)
-    if [ "$MOUNT_CMD" = "none" ]; then
-        log_error "No valid mount command found!"
-        return 1
-    fi
-    $MOUNT_CMD -t cifs -o vers=$smbver,user=$users,username=$users,password=$pwd,iocharset=$iocharset,$agm,_netdev,nofail //$server/$name $natpath
-    if [ $? -eq 0 ]; then
-        log_info "Mount succeeded using $MOUNT_CMD."
+    mkdir -p "$natpath" && chmod 777 "$natpath"
+
+    if is_busybox; then
+        mount_cmd="busybox mount"
     else
-        log_error "Mount failed using $MOUNT_CMD."
-        return 1
+        mount_cmd="mount"
     fi
+
+    $mount_cmd -t cifs -o vers=$smbver,user=$users,username=$users,password=$pwd,iocharset=$iocharset,$agm //$server/$name $natpath
 }
 
 start() {
     config_load cifs
     config_foreach cifs_header cifs
-    if [ $ENABLED == 1 ]
-    then {
+
+    if [ $ENABLED == 1 ]; then
         config_foreach mount_natshare natshare
-        }
     fi
 }
 
 stop() {
     mount | grep '//' | awk -F ' ' '{print$3}' | while read line; do
-        umount -d -l $line 2>/dev/null
-        if [ $? -ne 0 ]; then
-            log_error "Failed to unmount $line."
-        else
-            log_info "Unmounted $line successfully."
-        fi
+        umount -d -l "$line" 2>/dev/null
     done
 }
